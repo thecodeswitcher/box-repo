@@ -38,10 +38,28 @@ class BoxViewSet(
     def perform_create(self, serializer):
         """Create a new box for a user"""
         serializer.save(user=self.request.user)
-    
+
     def create(self, request, *args, **kwargs):
-        account = Account.objects.filter(user=request.user).order_by("-id")[0]
+        """Restricts creation of boxes for free accounts
+        Also ensures only admins can create boxes
+        """
         repo = Repo.objects.get(id=request.data["repo"])
+        repo_access = RepoAccess.objects.filter(
+            user=request.user,
+            repo=repo,
+            access_type__in=[
+                RepoAccess.REPO_ACCESS_TYPE_VIEWER,
+                RepoAccess.REPO_ACCESS_TYPE_ADMIN,
+                RepoAccess.REPO_ACCESS_TYPE_OWNER,
+            ],
+        )
+        # TODO: refactor the repo_access check into its own function
+        if not repo_access.exists():
+            return Response(
+                {"msg": "Unauthorized to perform action"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        account = Account.objects.filter(user=request.user).order_by("-id")[0]
         num_boxes = len(repo.boxes_list)
         logger.info(
             f"""RepoViewSet.create user {request.user}'s latest account {account} is a {account.account_type} one and repo {repo} currently has {num_boxes} boxes"""
@@ -53,6 +71,7 @@ class BoxViewSet(
             )
 
         return super().create(request, *args, **kwargs)
+
 
 class RepoRetrieveViewSet(
     generics.RetrieveAPIView,
