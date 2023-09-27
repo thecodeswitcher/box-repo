@@ -105,6 +105,20 @@ class BoxApiTest(TestCase):
         res = self.client.post(BOX_URL, payload)
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
+    def test_only_admins_can_create_boxes(self):
+        """Only admins/owners should be able to create boxes"""
+        payload = {
+            "user": self.user.id,
+            "repo": self.repo.id,
+            "box_name": "A box",
+            "box_description": "This is a box",
+        }
+        self.client.force_authenticate(user=self.other_users[0])
+        res = self.client.post(BOX_URL,payload)
+        self.assertEqual(res.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+
     def test_viewer_access_required_to_get_repo(self):
         """A user needs at least viewer access to retrieve a repo"""
         self.client.force_authenticate(user=self.other_users[0])
