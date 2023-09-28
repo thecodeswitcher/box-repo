@@ -13,13 +13,59 @@ from rest_framework.exceptions import APIException
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from box.serializers import RepoSerializer, RepoAccessSerializer, BoxSerializer
-from box.models import Repo, RepoAccess, Box
+from box.serializers import (
+    RepoSerializer,
+    RepoAccessSerializer,
+    BoxSerializer,
+    BoxMediaSerializer,
+)
+from box.models import Repo, RepoAccess, Box, BoxMedia
 from user.models import Account
 import logging
 import os
+import boto3
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+
+class S3FileUploader:
+    def __init__(self):
+        self.AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+        self.AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+
+        self.session = boto3.Session(
+            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
+        )
+
+        self.s3 = self.session.resource("s3")
+        self.bucket = self.s3.Bucket("box-repo-s3-bucket")
+
+    def upload_file(self, key, file_content):
+        self.bucket.put_object(Key=key, Body=file_content)
+        return key
+
 
 logger = logging.getLogger(__name__)
+MAX_FILESIZE_MB = 5  # TODO: Make configurable by account type
+
+
+def user_has_repo_admin_access(
+    user,
+    repo,
+    required_access=[
+        RepoAccess.REPO_ACCESS_TYPE_VIEWER,
+        RepoAccess.REPO_ACCESS_TYPE_ADMIN,
+        RepoAccess.REPO_ACCESS_TYPE_OWNER,
+    ],
+):
+    return RepoAccess.objects.filter(
+        user=user,
+        repo=repo,
+        access_type__in=required_access,
+    ).exists()
 
 
 class BoxViewSet(
@@ -44,17 +90,8 @@ class BoxViewSet(
         Also ensures only admins can create boxes
         """
         repo = Repo.objects.get(id=request.data["repo"])
-        repo_access = RepoAccess.objects.filter(
-            user=request.user,
-            repo=repo,
-            access_type__in=[
-                RepoAccess.REPO_ACCESS_TYPE_VIEWER,
-                RepoAccess.REPO_ACCESS_TYPE_ADMIN,
-                RepoAccess.REPO_ACCESS_TYPE_OWNER,
-            ],
-        )
-        # TODO: refactor the repo_access check into its own function
-        if not repo_access.exists():
+        user_has_repo_access = user_has_repo_admin_access(request.user, repo)
+        if not user_has_repo_access:
             return Response(
                 {"msg": "Unauthorized to perform action"},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -83,16 +120,8 @@ class RepoRetrieveViewSet(
 
     def get(self, request, *args, **kwargs):
         repo = self.get_object()
-        repo_access = RepoAccess.objects.filter(
-            user=request.user,
-            repo=repo,
-            access_type__in=[
-                RepoAccess.REPO_ACCESS_TYPE_VIEWER,
-                RepoAccess.REPO_ACCESS_TYPE_ADMIN,
-                RepoAccess.REPO_ACCESS_TYPE_OWNER,
-            ],
-        )
-        if not repo_access.exists():
+        user_has_repo_access = user_has_repo_admin_access(request.user, repo)
+        if not user_has_repo_access:
             return Response(
                 {"msg": "You are not authorized to view this repo"},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -144,15 +173,15 @@ class RepoAccessViewSet(
         serializer = self.get_serializer(data=request.data)
         repo = Repo.objects.get(id=request.data["repo"])
         serializer.is_valid(raise_exception=True)
-        repo_access = RepoAccess.objects.filter(
-            user=request.user,
-            repo=repo,
-            access_type__in=[
+        user_has_repo_access = user_has_repo_admin_access(
+            request.user,
+            repo,
+            required_access=[
                 RepoAccess.REPO_ACCESS_TYPE_ADMIN,
                 RepoAccess.REPO_ACCESS_TYPE_OWNER,
             ],
         )
-        if not repo_access.exists():
+        if not user_has_repo_access:
             return Response(
                 {"msg": "You are not authorized to assign access to this repo"},
                 status=status.HTTP_401_UNAUTHORIZED,
@@ -174,17 +203,62 @@ class BoxEditViewset(generics.UpdateAPIView):
         box = self.get_object()
         repo = box.repo
 
-        repo_access = RepoAccess.objects.filter(
-            user=request.user,
-            repo=repo,
-            access_type__in=[
+        user_has_repo_access = user_has_repo_admin_access(
+            request.user,
+            repo,
+            required_access=[
                 RepoAccess.REPO_ACCESS_TYPE_ADMIN,
                 RepoAccess.REPO_ACCESS_TYPE_OWNER,
             ],
         )
-        if not repo_access.exists():
+        if not user_has_repo_access:
             return Response(
                 {"msg": "Not authorized to perform action"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
         return super().update(request, *args, **kwargs)
+
+
+class BoxMediaViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
+    queryset = BoxMedia.objects.all()
+    serializer_class = BoxMediaSerializer
+    authentication_classes = (TokenAuthentication,)
+    permission_classes = (IsAuthenticated,)
+
+    def perform_create(self, serializer):
+        """Create a new BoxMedia for a user"""
+        serializer.save(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        if not request.FILES.get("file", False):
+            return Response(
+                {"msg": "file key is missing in body"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        received_file = request.FILES.getlist("file")[0]
+        file_size = received_file.size
+
+        if file_size > MAX_FILESIZE_MB * 1024 * 1024:
+            return Response(
+                {
+                    "msg": f"Max size of file is \
+                                {MAX_FILESIZE_MB} MB",
+                    "max_size": f"{MAX_FILESIZE_MB} MB",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        box_id = request.data["box"]
+        # logger.info(f"""BoxMediaViewSet.create box_id :{box_id} is type {type(box_id)}""")
+        box = Box.objects.get(id=int(box_id))
+        box_media = BoxMedia.objects.create(
+            **{
+                "user": request.user,
+                "box": box,
+                "file_name": request.data["file_name"],
+            }
+        )
+        s3 = S3FileUploader()
+        s3.upload_file(key=box_media.s3_bucket_file_path, file_content=received_file)
+        serializer = self.get_serializer(box_media)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

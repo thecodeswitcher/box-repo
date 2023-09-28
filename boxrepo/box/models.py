@@ -65,6 +65,7 @@ class Box(models.Model):
         Repo,
         on_delete=models.CASCADE,
         related_name="boxes",
+
     )
     box_name = models.CharField(max_length=255, default="")
     box_description = models.TextField(default="")
@@ -74,6 +75,14 @@ class Box(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-# class BoxMedia(models.Model):
-#     box = models.ForeignKey(Box, on_delete=models.CASCADE)
-#     file_path = models.CharField()
+class BoxMedia(models.Model):
+    user = models.ForeignKey(
+        get_user_model(),
+        on_delete=models.CASCADE,
+    )
+    box = models.ForeignKey(Box, on_delete=models.CASCADE,)
+    file_name = models.TextField(default="") # front end will encrypt the file_name
+    
+    @property
+    def s3_bucket_file_path(self):
+        return f"repo_{self.box.repo.id}/box_{self.box.id}/file_{self.id}"

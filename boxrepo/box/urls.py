@@ -6,6 +6,7 @@ router = DefaultRouter()
 router.register("box", views.BoxViewSet)
 router.register("repo", views.RepoViewSet)
 router.register("repoaccess", views.RepoAccessViewSet)
+router.register("boxmedia", views.BoxMediaViewSet)
 
 app_name = "box"
 

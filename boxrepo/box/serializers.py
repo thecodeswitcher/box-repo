@@ -1,7 +1,7 @@
 from django.contrib.auth import get_user_model, authenticate
 from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
-from box.models import Repo, RepoAccess, Box
+from box.models import Repo, RepoAccess, Box, BoxMedia
 
 class BoxSerializer(serializers.ModelSerializer):
     """Serializer for the Box Model"""
@@ -9,6 +9,14 @@ class BoxSerializer(serializers.ModelSerializer):
     class Meta:
         model = Box
         fields = "__all__"
+
+class BoxMediaSerializer(serializers.ModelSerializer):
+    """Serializer for the BoxMedia Model"""
+    class Meta:
+        model = BoxMedia
+        fields = ("id", "box_id", "user_id","file_name", "s3_bucket_file_path")
+
+
 
 class RepoSerializer(serializers.ModelSerializer):
     """Serializer for the Repo Model"""

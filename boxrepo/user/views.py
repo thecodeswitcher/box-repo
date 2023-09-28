@@ -39,8 +39,6 @@ class CreateUserView(generics.CreateAPIView):
         if res.status_code == 201:
             user = get_user_model().objects.get(id=res.data["id"])
             token, created = Token.objects.get_or_create(user=user)
-
-            # TODO: token getorcreate
             return Response({
                 "token": token.key,
                 "id": user.id,

@@ -38,6 +38,7 @@ class RepoApiTests(TestCase):
         payload = {
             "repo_name": "Repo 1",
         }
+        logger.info(f"""test_repo_create REPO_URL:{REPO_URL}""")
         res = self.client.post(REPO_URL, payload)
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         repo = Repo.objects.get(id=res.data["id"])
@@ -139,6 +140,7 @@ class BoxApiTest(TestCase):
             **{"repo": self.repo, "user": self.user, "box_name": "Original Box name"}
         )
         box_patch_url = BOX_URL + f"{box.id}/"
+        logger.info(f"""test_only_repo_admin_owners_can_edit_box box_patch_url:{box_patch_url}""")
         self.client.force_authenticate(user=self.other_users[0])
         res = self.client.patch(box_patch_url, {"box_name": "New Box Name"})
 
