@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 import datetime
 from user.models import Account
+from box.aws_utils.s3_utils import S3FileManager
 
 
 class Repo(models.Model):
@@ -86,3 +87,5 @@ class BoxMedia(models.Model):
     @property
     def s3_bucket_file_path(self):
         return f"repo_{self.box.repo.id}/box_{self.box.id}/file_{self.id}"
+    
+    

@@ -1,4 +1,5 @@
 from django.shortcuts import render
+from django.http import HttpResponse
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 
@@ -22,31 +23,11 @@ from box.serializers import (
 from box.models import Repo, RepoAccess, Box, BoxMedia
 from user.models import Account
 import logging
-import os
-import boto3
 from dotenv import load_dotenv
-
 
 load_dotenv()
 
-
-class S3FileUploader:
-    def __init__(self):
-        self.AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-        self.AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-
-        self.session = boto3.Session(
-            aws_access_key_id=self.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=self.AWS_SECRET_ACCESS_KEY,
-        )
-
-        self.s3 = self.session.resource("s3")
-        self.bucket = self.s3.Bucket("box-repo-s3-bucket")
-
-    def upload_file(self, key, file_content):
-        self.bucket.put_object(Key=key, Body=file_content)
-        return key
-
+from box.aws_utils.s3_utils import S3FileManager
 
 logger = logging.getLogger(__name__)
 MAX_FILESIZE_MB = 5  # TODO: Make configurable by account type
@@ -218,18 +199,61 @@ class BoxEditViewset(generics.UpdateAPIView):
             )
         return super().update(request, *args, **kwargs)
 
-
-class BoxMediaViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
+#Refactor into a child class to abstract the admin access check
+class BoxMediaViewSet(
+    viewsets.GenericViewSet,
+    generics.RetrieveUpdateDestroyAPIView,
+    mixins.CreateModelMixin,
+):
     queryset = BoxMedia.objects.all()
     serializer_class = BoxMediaSerializer
     authentication_classes = (TokenAuthentication,)
     permission_classes = (IsAuthenticated,)
+
+    def retrieve(self, request, *args, **kwargs):
+        box_media = self.get_object()        
+        user_has_repo_access = user_has_repo_admin_access(
+            request.user,
+            box_media.box.repo,
+            required_access=[
+                RepoAccess.REPO_ACCESS_TYPE_ADMIN,
+                RepoAccess.REPO_ACCESS_TYPE_OWNER,
+                RepoAccess.REPO_ACCESS_TYPE_VIEWER,
+            ],
+        )
+        if not user_has_repo_access:
+            return Response(
+                {"msg": "Not authorized to perform action"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        s3 = S3FileManager()
+        file_path = box_media.s3_bucket_file_path+".jpg"
+        logger.info(f"file_path:{file_path}")
+        file_content = s3.get_file_content(key=file_path,)
+        return HttpResponse(file_content,)        
+        # return Response(file_content, content_type="image/jpeg")
+        # return super().retrieve(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         """Create a new BoxMedia for a user"""
         serializer.save(user=self.request.user)
 
     def create(self, request, *args, **kwargs):
+        box_id = request.data["box"]
+        box = Box.objects.get(id=int(box_id))
+        user_has_repo_access = user_has_repo_admin_access(
+            request.user,
+            box.repo,
+            required_access=[
+                RepoAccess.REPO_ACCESS_TYPE_ADMIN,
+                RepoAccess.REPO_ACCESS_TYPE_OWNER,
+            ],
+        )
+        if not user_has_repo_access:
+            return Response(
+                {"msg": "Not authorized to perform action"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
         if not request.FILES.get("file", False):
             return Response(
                 {"msg": "file key is missing in body"},
@@ -248,9 +272,6 @@ class BoxMediaViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        box_id = request.data["box"]
-        # logger.info(f"""BoxMediaViewSet.create box_id :{box_id} is type {type(box_id)}""")
-        box = Box.objects.get(id=int(box_id))
         box_media = BoxMedia.objects.create(
             **{
                 "user": request.user,
@@ -258,7 +279,72 @@ class BoxMediaViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
                 "file_name": request.data["file_name"],
             }
         )
-        s3 = S3FileUploader()
+        s3 = S3FileManager()
         s3.upload_file(key=box_media.s3_bucket_file_path, file_content=received_file)
         serializer = self.get_serializer(box_media)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def destroy(self, request, *args, **kwargs):
+        box_media = self.get_object()
+        logger.info(f"""Attempting to destroy {box_media}""")
+        user_has_repo_access = user_has_repo_admin_access(
+            request.user,
+            box_media.box.repo,
+            required_access=[
+                RepoAccess.REPO_ACCESS_TYPE_ADMIN,
+                RepoAccess.REPO_ACCESS_TYPE_OWNER,
+            ],
+        )
+        if not user_has_repo_access:
+            return Response(
+                {"msg": "Not authorized to perform action"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        s3 = S3FileManager()
+        s3.delete_file(key=box_media.s3_bucket_file_path)
+        logger.info(f"Successfully deleted {box_media}")
+
+        return super().destroy(request, *args, **kwargs)
+    
+    def update(self, request, *args, **kwargs):
+        box_id = request.data["box"]
+        box = Box.objects.get(id=int(box_id))
+        user_has_repo_access = user_has_repo_admin_access(
+            request.user,
+            box.repo,
+            required_access=[
+                RepoAccess.REPO_ACCESS_TYPE_ADMIN,
+                RepoAccess.REPO_ACCESS_TYPE_OWNER,
+            ],
+        )
+        if not user_has_repo_access:
+            return Response(
+                {"msg": "Not authorized to perform action"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        received_file = request.FILES.getlist("file")[0]
+        file_size = received_file.size
+
+        if file_size > MAX_FILESIZE_MB * 1024 * 1024:
+            return Response(
+                {
+                    "msg": f"Max size of file is \
+                                {MAX_FILESIZE_MB} MB",
+                    "max_size": f"{MAX_FILESIZE_MB} MB",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        box_media = self.get_object()
+        file_name = request.data.get("file_name", box_media.file_name)
+        if box_media.file_name != file_name:
+            box_media.file_name = file_name
+            box_media.save()
+        s3 = S3FileManager()
+        s3.upload_file(key=box_media.s3_bucket_file_path, file_content=received_file)
+        serializer = self.get_serializer(box_media)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+    # #TODO: Update image in the S3 bucket
+    # return super().update(request, *args, **kwargs)

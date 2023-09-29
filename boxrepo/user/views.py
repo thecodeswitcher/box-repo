@@ -53,13 +53,6 @@ class AccountViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.Crea
     authentication_classes = (TokenAuthentication,)
     permission_classes = (IsAuthenticated,)
 
-    # def get_queryset(self):
-    #     pass
-    
-    # def perform_create(self, serializer):
-    #     """Create a new account for a user"""
-    #     serializer.save(user=self.request.user)
-
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)

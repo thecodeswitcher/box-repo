@@ -7,7 +7,7 @@ from rest_framework import status
 from rest_framework.renderers import JSONRenderer
 
 from user.models import Account
-from box.models import Box, Repo, RepoAccess
+from box.models import Box, Repo, RepoAccess, BoxMedia
 
 import logging
 import json
@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 REPO_URL = reverse("box:repo-list")
 REPO_ACCESS_URL = reverse("box:repoaccess-list")
+BOX_MEDIA_LIST_URL = reverse("box:boxmedia-list")
 BOX_URL = reverse("box:box-list")
 ACCOUNT_TYPE_FREE = "FREE"
 
