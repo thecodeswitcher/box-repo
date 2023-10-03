@@ -1,1 +1,1 @@
-web: gunicorn boxrepo.wsgi -log-file -
+web: cd boxrepo && gunicorn boxrepo.wsgi
