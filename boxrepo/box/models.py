@@ -31,7 +31,6 @@ class Repo(models.Model):
         return self.boxes.all()
 
 
-
 class RepoAccess(models.Model):
     REPO_ACCESS_TYPE_OWNER = "OWNER"
     REPO_ACCESS_TYPE_ADMIN = "ADMIN"
@@ -66,7 +65,6 @@ class Box(models.Model):
         Repo,
         on_delete=models.CASCADE,
         related_name="boxes",
-
     )
     box_name = models.CharField(max_length=255, default="")
     box_description = models.TextField(default="")
@@ -80,12 +78,15 @@ class BoxMedia(models.Model):
     user = models.ForeignKey(
         get_user_model(),
         on_delete=models.CASCADE,
+        default=None,
     )
-    box = models.ForeignKey(Box, on_delete=models.CASCADE,)
-    file_name = models.TextField(default="") # front end will encrypt the file_name
-    
+    box = models.ForeignKey(
+        Box,
+        on_delete=models.CASCADE,
+        default=None,
+    )
+    file_name = models.TextField(default="")  # front end will encrypt the file_name
+
     @property
     def s3_bucket_file_path(self):
         return f"repo_{self.box.repo.id}/box_{self.box.id}/file_{self.id}"
-    
-    

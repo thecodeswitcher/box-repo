@@ -74,6 +74,7 @@ class AccountApiTests(TestCase):
         self.client.force_authenticate(user = self.user)
     
     def test_create_valid_account_success(self):
+        self.client.force_authenticate(user = self.user)
         payload = {
             "account_name": "Account 1",
             "user": self.user.id,

@@ -143,7 +143,8 @@ class BoxApiTest(TestCase):
         box_patch_url = BOX_URL + f"{box.id}/"
         logger.info(f"""test_only_repo_admin_owners_can_edit_box box_patch_url:{box_patch_url}""")
         self.client.force_authenticate(user=self.other_users[0])
-        res = self.client.patch(box_patch_url, {"box_name": "New Box Name"})
+        res = self.client.put(box_patch_url, {"box_name": "New Box Name"})
+        logger.info(f"""test_only_repo_admin_owners_can_edit_box res {res.data}""")
 
         self.assertEquals(res.status_code, status.HTTP_401_UNAUTHORIZED)
     

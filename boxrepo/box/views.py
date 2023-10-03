@@ -50,7 +50,11 @@ def user_has_repo_admin_access(
 
 
 class BoxViewSet(
-    viewsets.GenericViewSet, mixins.ListModelMixin, mixins.CreateModelMixin
+    viewsets.GenericViewSet,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    generics.RetrieveAPIView,
+    generics.UpdateAPIView,
 ):
     """Class to manage accounts in the db"""
 
@@ -59,8 +63,15 @@ class BoxViewSet(
     authentication_classes = (TokenAuthentication,)
     permission_classes = (IsAuthenticated,)
 
-    # def get_queryset(self):
-    #     pass
+    def get(self, request, *args, **kwargs):
+        box = self.get_object()
+        user_has_repo_access = user_has_repo_admin_access(request.user, box.repo)
+        if not user_has_repo_access:
+            return Response(
+                {"msg": "You are not authorized to view this repo"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        return super().get(request, *args, **kwargs)
 
     def perform_create(self, serializer):
         """Create a new box for a user"""
@@ -89,6 +100,25 @@ class BoxViewSet(
             )
 
         return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        box = self.get_object()
+        repo = box.repo
+
+        user_has_repo_access = user_has_repo_admin_access(
+            request.user,
+            repo,
+            required_access=[
+                RepoAccess.REPO_ACCESS_TYPE_ADMIN,
+                RepoAccess.REPO_ACCESS_TYPE_OWNER,
+            ],
+        )
+        if not user_has_repo_access:
+            return Response(
+                {"msg": "Not authorized to perform action"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        return super().update(request, *args, **kwargs)
 
 
 class RepoRetrieveViewSet(
@@ -174,32 +204,7 @@ class RepoAccessViewSet(
         )
 
 
-class BoxEditViewset(generics.UpdateAPIView):
-    queryset = Box.objects.all()
-    serializer_class = BoxSerializer
-    authentication_classes = (TokenAuthentication,)
-    permission_classes = (IsAuthenticated,)
-
-    def update(self, request, *args, **kwargs):
-        box = self.get_object()
-        repo = box.repo
-
-        user_has_repo_access = user_has_repo_admin_access(
-            request.user,
-            repo,
-            required_access=[
-                RepoAccess.REPO_ACCESS_TYPE_ADMIN,
-                RepoAccess.REPO_ACCESS_TYPE_OWNER,
-            ],
-        )
-        if not user_has_repo_access:
-            return Response(
-                {"msg": "Not authorized to perform action"},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-        return super().update(request, *args, **kwargs)
-
-#Refactor into a child class to abstract the admin access check
+# Refactor into a child class to abstract the admin access check
 class BoxMediaViewSet(
     viewsets.GenericViewSet,
     generics.RetrieveUpdateDestroyAPIView,
@@ -211,7 +216,7 @@ class BoxMediaViewSet(
     permission_classes = (IsAuthenticated,)
 
     def retrieve(self, request, *args, **kwargs):
-        box_media = self.get_object()        
+        box_media = self.get_object()
         user_has_repo_access = user_has_repo_admin_access(
             request.user,
             box_media.box.repo,
@@ -227,10 +232,14 @@ class BoxMediaViewSet(
                 status=status.HTTP_401_UNAUTHORIZED,
             )
         s3 = S3FileManager()
-        file_path = box_media.s3_bucket_file_path+".jpg"
+        file_path = box_media.s3_bucket_file_path + ".jpg"
         logger.info(f"file_path:{file_path}")
-        file_content = s3.get_file_content(key=file_path,)
-        return HttpResponse(file_content,)        
+        file_content = s3.get_file_content(
+            key=file_path,
+        )
+        return HttpResponse(
+            file_content,
+        )
         # return Response(file_content, content_type="image/jpeg")
         # return super().retrieve(request, *args, **kwargs)
 
@@ -305,7 +314,7 @@ class BoxMediaViewSet(
         logger.info(f"Successfully deleted {box_media}")
 
         return super().destroy(request, *args, **kwargs)
-    
+
     def update(self, request, *args, **kwargs):
         box_id = request.data["box"]
         box = Box.objects.get(id=int(box_id))
@@ -344,7 +353,6 @@ class BoxMediaViewSet(
         s3.upload_file(key=box_media.s3_bucket_file_path, file_content=received_file)
         serializer = self.get_serializer(box_media)
         return Response(serializer.data, status=status.HTTP_200_OK)
-
 
     # #TODO: Update image in the S3 bucket
     # return super().update(request, *args, **kwargs)

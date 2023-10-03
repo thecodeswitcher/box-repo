@@ -13,6 +13,5 @@ app_name = "box"
 urlpatterns = [
     path("", include(router.urls)),
     path("repo/<int:pk>/", views.RepoRetrieveViewSet.as_view(), name="repo_item"),
-    path("box/<int:pk>/", views.BoxEditViewset.as_view(), name="edit_box_item"),
     # path("token/", views.CreateTokenView.as_view(), name="token"),
 ]
