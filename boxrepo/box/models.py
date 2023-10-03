@@ -13,8 +13,10 @@ class Repo(models.Model):
     repo_name = models.CharField(
         max_length=255,
     )
-    # TODO: created_at
-    # TODO: updated_at
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
 
     def save(self, *args, **kwargs):
         """Automatically create an OWNER access type"""
@@ -50,9 +52,10 @@ class RepoAccess(models.Model):
         on_delete=models.CASCADE,
     )
     access_type = models.CharField(max_length=255, choices=REPO_ACCESS_TYPE_CHOICES)
-
-    # TODO: created_at
-    # TODO: updated_at
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
 
 
 class Box(models.Model):
@@ -86,6 +89,10 @@ class BoxMedia(models.Model):
         default=None,
     )
     file_name = models.TextField(default="")  # front end will encrypt the file_name
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+    updated_at = models.DateTimeField(auto_now=True)
 
     @property
     def s3_bucket_file_path(self):
