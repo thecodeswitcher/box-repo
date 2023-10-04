@@ -232,7 +232,7 @@ class BoxMediaViewSet(
                 status=status.HTTP_401_UNAUTHORIZED,
             )
         s3 = S3FileManager()
-        file_path = box_media.s3_bucket_file_path + ".jpg"
+        file_path = box_media.s3_bucket_file_path
         logger.info(f"file_path:{file_path}")
         file_content = s3.get_file_content(
             key=file_path,
